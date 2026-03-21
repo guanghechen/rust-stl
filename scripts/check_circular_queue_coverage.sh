@@ -2,7 +2,8 @@
 set -euo pipefail
 
 THRESHOLD="${1:-98}"
-TARGET_SUFFIX="/crates/queue/src/circular_queue.rs"
+TARGET_SUFFIX="${2:-/crates/queue/src/circular_queue.rs}"
+TARGET_NAME="$(basename "${TARGET_SUFFIX}")"
 REPORT_DIR="target/llvm-cov"
 LCOV_PATH="${REPORT_DIR}/lcov.info"
 
@@ -51,13 +52,13 @@ read -r total_lines hit_lines < <(
 )
 
 if [[ "${total_lines}" == "0" ]]; then
-  echo "error: no coverage data found for crates/queue/src/circular_queue.rs"
+  echo "error: no coverage data found for ${TARGET_SUFFIX}"
   exit 1
 fi
 
 coverage="$(awk -v hit="${hit_lines}" -v total="${total_lines}" 'BEGIN { printf "%.2f", (hit / total) * 100 }')"
 
-printf 'circular_queue.rs line coverage: %s%% (%s/%s)\n' "${coverage}" "${hit_lines}" "${total_lines}"
+printf '%s line coverage: %s%% (%s/%s)\n' "${TARGET_NAME}" "${coverage}" "${hit_lines}" "${total_lines}"
 printf 'required threshold: %s%%\n' "${THRESHOLD}"
 
 if ! awk -v cov="${coverage}" -v threshold="${THRESHOLD}" 'BEGIN { exit (cov + 1e-9 >= threshold ? 0 : 1) }'; then
