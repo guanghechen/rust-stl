@@ -1,0 +1,7 @@
+[package]
+name = "queue"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+collection = { package = "guanghechen-collection", path = "../collection" }
