@@ -2,9 +2,14 @@
 name = "rstl-queue"
 version = "0.1.0"
 edition = "2024"
+description = "Queue data structures for rstl crates"
+repository = "https://github.com/guanghechen/rust-stl"
+homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/queue#readme"
+documentation = "https://docs.rs/rstl-queue"
+readme = "README.md"
 
 [dependencies]
-collection = { package = "rstl-collection", path = "../collection" }
+collection = { package = "rstl-collection", version = "0.1.0", path = "../collection" }
 
 [dev-dependencies]
 criterion = "0.5"
