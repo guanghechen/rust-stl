@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 collection = { package = "rstl-collection", path = "../collection" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "queue_common"
+harness = false
