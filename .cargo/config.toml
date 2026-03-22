@@ -1,6 +1,7 @@
 [alias]
 rel-dry = "release publish --workspace --no-confirm"
 rel = "release publish --workspace --no-confirm -x"
-bump-patch = "release patch --workspace --no-confirm --execute --no-publish"
-bump-minor = "release minor --workspace --no-confirm --execute --no-publish"
-bump-major = "release major --workspace --no-confirm --execute --no-publish"
+"bump:patch" = "release patch --workspace --no-confirm --execute --no-publish"
+"bump:minor" = "release minor --workspace --no-confirm --execute --no-publish"
+"bump:major" = "release major --workspace --no-confirm --execute --no-publish"
+"test:coverage" = "llvm-cov --workspace --ignore-filename-regex (^|/)traits\\.rs$"
