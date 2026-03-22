@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/collection", "crates/queue"]
+members = ["crates/collection", "crates/queue", "crates/stack"]
 resolver = "2"
 
 [workspace.metadata.release]

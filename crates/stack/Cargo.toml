@@ -1,0 +1,20 @@
+[package]
+name = "rstl-stack"
+version = "0.1.0"
+edition = "2024"
+description = "Stack data structures for rstl crates"
+license = "MIT"
+repository = "https://github.com/guanghechen/rust-stl"
+homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/stack#readme"
+documentation = "https://docs.rs/rstl-stack"
+readme = "README.md"
+
+[dependencies]
+collection = { package = "rstl-collection", version = "0.1.0", path = "../collection" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "stack_common"
+harness = false
