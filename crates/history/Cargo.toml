@@ -1,0 +1,21 @@
+[package]
+name = "rstl-history"
+version = "0.1.0"
+edition = "2024"
+description = "History data structures for rstl crates"
+license = "MIT"
+repository = "https://github.com/guanghechen/rust-stl"
+homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/history#readme"
+documentation = "https://docs.rs/rstl-history"
+readme = "README.md"
+
+[dependencies]
+collection = { package = "rstl-collection", version = "0.1.0", path = "../collection" }
+stack = { package = "rstl-stack", version = "0.1.0", path = "../stack" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "history_common"
+harness = false
