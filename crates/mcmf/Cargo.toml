@@ -1,6 +1,6 @@
 [package]
 name = "rstl-mcmf"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Min-cost max-flow algorithm for rstl crates"
 license = "MIT"
@@ -10,8 +10,8 @@ documentation = "https://docs.rs/rstl-mcmf"
 readme = "README.md"
 
 [dependencies]
-collection = { package = "rstl-collection", version = "0.1.0", path = "../collection" }
-queue = { package = "rstl-queue", version = "0.1.0", path = "../queue" }
+collection = { package = "rstl-collection", version = "0.1.1", path = "../collection" }
+queue = { package = "rstl-queue", version = "0.1.1", path = "../queue" }
 
 [dev-dependencies]
 criterion = "0.5"

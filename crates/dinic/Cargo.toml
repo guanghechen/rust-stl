@@ -1,6 +1,6 @@
 [package]
 name = "rstl-dinic"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Dinic max-flow algorithm for rstl crates"
 license = "MIT"
