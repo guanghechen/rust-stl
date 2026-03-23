@@ -10,6 +10,102 @@ const N_MIX: usize = 10_000;
 const N_PATTERN: usize = 4096;
 const N_STEADY_OPS: usize = 20_000;
 
+#[derive(Default, Clone)]
+struct PriorityQueueOneBased {
+    // Keep index 0 unused so the heap is 1-based.
+    elements: Vec<usize>,
+    len: usize,
+}
+
+impl PriorityQueueOneBased {
+    fn new() -> Self {
+        Self {
+            elements: vec![0],
+            len: 0,
+        }
+    }
+
+    fn front(&self) -> Option<&usize> {
+        if self.len == 0 {
+            None
+        } else {
+            Some(&self.elements[1])
+        }
+    }
+
+    fn enqueue(&mut self, value: usize) {
+        self.len += 1;
+        if self.len == self.elements.len() {
+            self.elements.push(value);
+        } else {
+            self.elements[self.len] = value;
+        }
+        self.up(self.len);
+    }
+
+    fn dequeue(&mut self) -> Option<usize> {
+        if self.len == 0 {
+            return None;
+        }
+
+        let target = self.elements[1];
+        if self.len == 1 {
+            self.len = 0;
+            return Some(target);
+        }
+
+        let last = self.elements[self.len];
+        self.len -= 1;
+        self.elements[1] = last;
+        self.down_to_bottom_then_up(1);
+        Some(target)
+    }
+
+    fn up(&mut self, mut pos: usize) {
+        let item = self.elements[pos];
+        while pos > 1 {
+            let parent = pos >> 1;
+            if self.elements[parent] <= item {
+                break;
+            }
+            self.elements[pos] = self.elements[parent];
+            pos = parent;
+        }
+        self.elements[pos] = item;
+    }
+
+    fn down_to_bottom_then_up(&mut self, start: usize) {
+        let mut pos = start;
+        let item = self.elements[pos];
+
+        let mut child = pos << 1;
+        while child + 1 <= self.len {
+            if self.elements[child + 1] < self.elements[child] {
+                child += 1;
+            }
+            self.elements[pos] = self.elements[child];
+            pos = child;
+            child = pos << 1;
+        }
+
+        if child <= self.len {
+            self.elements[pos] = self.elements[child];
+            pos = child;
+        }
+
+        while pos > start {
+            let parent = pos >> 1;
+            if self.elements[parent] <= item {
+                break;
+            }
+            self.elements[pos] = self.elements[parent];
+            pos = parent;
+        }
+
+        self.elements[pos] = item;
+    }
+}
+
 #[derive(Clone)]
 struct XorShift64 {
     state: u64,
@@ -409,6 +505,150 @@ fn bench_pq_vs_bh_steady_state(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_pq_zero_vs_onebase_enqueue_patterns(c: &mut Criterion) {
+    let mut group = c.benchmark_group("queue/pq_zero_vs_onebase_enqueue_patterns_4k");
+
+    for pattern in [
+        InputPattern::Ascending,
+        InputPattern::Descending,
+        InputPattern::Random,
+        InputPattern::Duplicates,
+    ] {
+        let values = build_pattern(pattern, N_PATTERN);
+        let zero_name = format!("zero_based/{}", pattern.label());
+        let one_name = format!("one_based/{}", pattern.label());
+
+        group.bench_function(&zero_name, |b| {
+            b.iter_batched(
+                || values.clone(),
+                |values| {
+                    let mut q = PriorityQueue::<usize>::new();
+                    for value in values {
+                        q.enqueue(black_box(value));
+                    }
+                    black_box(q.front());
+                },
+                BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_function(&one_name, |b| {
+            b.iter_batched(
+                || values.clone(),
+                |values| {
+                    let mut q = PriorityQueueOneBased::new();
+                    for value in values {
+                        q.enqueue(black_box(value));
+                    }
+                    black_box(q.front());
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_pq_zero_vs_onebase_dequeue_sizes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("queue/pq_zero_vs_onebase_dequeue_sizes");
+
+    for &size in &[256_usize, 4096, 16384] {
+        let values = prepare_seed_data(size, 0x9E37_79B9_u64 ^ size as u64);
+
+        let zero_name = format!("zero_based/{}", size);
+        group.bench_function(&zero_name, |b| {
+            b.iter_batched(
+                || {
+                    let mut q = PriorityQueue::<usize>::new();
+                    for &value in &values {
+                        q.enqueue(value);
+                    }
+                    q
+                },
+                |mut q| {
+                    for _ in 0..size {
+                        black_box(q.dequeue());
+                    }
+                },
+                BatchSize::SmallInput,
+            )
+        });
+
+        let one_name = format!("one_based/{}", size);
+        group.bench_function(&one_name, |b| {
+            b.iter_batched(
+                || {
+                    let mut q = PriorityQueueOneBased::new();
+                    for &value in &values {
+                        q.enqueue(value);
+                    }
+                    q
+                },
+                |mut q| {
+                    for _ in 0..size {
+                        black_box(q.dequeue());
+                    }
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+
+    group.finish();
+}
+
+fn bench_pq_zero_vs_onebase_steady_state(c: &mut Criterion) {
+    let mut group = c.benchmark_group("queue/pq_zero_vs_onebase_steady_state");
+
+    for &size in &[32_usize, 512, 4096] {
+        let init_values = prepare_seed_data(size, 0x1357_9BDF_u64 ^ size as u64);
+        let stream = prepare_seed_data(N_STEADY_OPS, 0x2468_ACE0_u64 ^ size as u64);
+
+        let zero_name = format!("zero_based/{}", size);
+        group.bench_function(&zero_name, |b| {
+            b.iter_batched(
+                || {
+                    let mut q = PriorityQueue::<usize>::new();
+                    for &value in &init_values {
+                        q.enqueue(value);
+                    }
+                    q
+                },
+                |mut q| {
+                    for &value in &stream {
+                        q.enqueue(black_box(value));
+                        black_box(q.dequeue());
+                    }
+                },
+                BatchSize::SmallInput,
+            )
+        });
+
+        let one_name = format!("one_based/{}", size);
+        group.bench_function(&one_name, |b| {
+            b.iter_batched(
+                || {
+                    let mut q = PriorityQueueOneBased::new();
+                    for &value in &init_values {
+                        q.enqueue(value);
+                    }
+                    q
+                },
+                |mut q| {
+                    for &value in &stream {
+                        q.enqueue(black_box(value));
+                        black_box(q.dequeue());
+                    }
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     queue_common,
     bench_enqueue,
@@ -416,6 +656,9 @@ criterion_group!(
     bench_mix,
     bench_pq_vs_bh_enqueue_patterns,
     bench_pq_vs_bh_dequeue_sizes,
-    bench_pq_vs_bh_steady_state
+    bench_pq_vs_bh_steady_state,
+    bench_pq_zero_vs_onebase_enqueue_patterns,
+    bench_pq_zero_vs_onebase_dequeue_sizes,
+    bench_pq_zero_vs_onebase_steady_state
 );
 criterion_main!(queue_common);

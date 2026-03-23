@@ -673,5 +673,4 @@ mod tests {
             assert_eq!(expected, sorted_dequeue_from_binary_heap(&mut bh));
         }
     }
-
 }
