@@ -1,6 +1,9 @@
 [alias]
 rel-dry = "release publish --workspace --no-confirm"
 rel = "release publish --workspace --no-confirm -x"
+"publish:plan" = "run --quiet --manifest-path scripts/publish-cli/Cargo.toml -- plan"
+"publish:tag" = "run --quiet --manifest-path scripts/publish-cli/Cargo.toml -- tag"
+"publish:tag:exec" = "run --quiet --manifest-path scripts/publish-cli/Cargo.toml -- tag --execute"
 "bump:patch" = "release patch --workspace --no-confirm --execute --no-publish"
 "bump:minor" = "release minor --workspace --no-confirm --execute --no-publish"
 "bump:major" = "release major --workspace --no-confirm --execute --no-publish"
