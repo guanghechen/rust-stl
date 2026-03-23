@@ -141,20 +141,27 @@ impl Isap {
 
         if self.resolved_timestamp < self.modified_timestamp as i64 {
             let mut maxflow = self.maxflow_cache;
+            let relabel_interval = self.edges.len().max(self.n).saturating_mul(2).max(64);
+            let mut scanned_edges = 0usize;
 
             self.cur.fill(0);
-            self.cnt.fill(0);
             self.path.fill(0);
-
-            self.bfs_from_sink();
-            for &d in &self.dist {
-                if d < self.n {
-                    self.cnt[d] += 1;
-                }
-            }
+            self.global_relabel();
 
             let mut u = self.source;
             while self.dist[self.source] < self.n {
+                if scanned_edges >= relabel_interval {
+                    self.global_relabel();
+                    self.cur.fill(0);
+                    self.path.fill(0);
+                    scanned_edges = 0;
+                    if self.dist[self.source] >= self.n {
+                        break;
+                    }
+                    u = self.source;
+                    continue;
+                }
+
                 if u == self.sink {
                     maxflow += self.augment();
                     u = self.source;
@@ -164,6 +171,7 @@ impl Isap {
                 let mut advanced = false;
                 while self.cur[u] < self.graph[u].len() {
                     let edge_idx = self.graph[u][self.cur[u]];
+                    scanned_edges = scanned_edges.saturating_add(1);
                     let (to, residual, relabel_ok) = {
                         let e = &self.edges[edge_idx];
                         (
@@ -190,6 +198,7 @@ impl Isap {
                 let old_dist = self.dist[u];
                 let mut min_dist = self.n.saturating_sub(1);
                 for &edge_idx in &self.graph[u] {
+                    scanned_edges = scanned_edges.saturating_add(1);
                     let e = &self.edges[edge_idx];
                     if e.cap > e.flow {
                         min_dist = min_dist.min(self.dist[e.to]);
@@ -197,7 +206,7 @@ impl Isap {
                 }
 
                 self.cnt[old_dist] = self.cnt[old_dist].saturating_sub(1);
-                if self.cnt[old_dist] == 0 {
+                if old_dist < self.n && self.cnt[old_dist] == 0 {
                     break;
                 }
 
@@ -248,6 +257,14 @@ impl Isap {
 
     fn is_initialized(&self) -> bool {
         self.n > 0 && self.graph.len() == self.n
+    }
+
+    fn global_relabel(&mut self) {
+        self.cnt.fill(0);
+        self.bfs_from_sink();
+        for &d in &self.dist {
+            self.cnt[d] += 1;
+        }
     }
 
     fn bfs_from_sink(&mut self) {

@@ -15,3 +15,7 @@ criterion = "0.5"
 [[bench]]
 name = "isap_common"
 harness = false
+
+[[bench]]
+name = "isap_matrix"
+harness = false

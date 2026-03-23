@@ -15,3 +15,7 @@ criterion = "0.5"
 [[bench]]
 name = "dinic_common"
 harness = false
+
+[[bench]]
+name = "dinic_matrix"
+harness = false
