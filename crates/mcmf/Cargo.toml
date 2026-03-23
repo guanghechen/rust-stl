@@ -1,0 +1,17 @@
+[package]
+name = "rstl-mcmf"
+version = "0.1.0"
+edition = "2024"
+description = "Min-cost max-flow algorithm for rstl crates"
+license = "MIT"
+repository = "https://github.com/guanghechen/rust-stl"
+homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/mcmf#readme"
+documentation = "https://docs.rs/rstl-mcmf"
+readme = "README.md"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "mcmf_common"
+harness = false
