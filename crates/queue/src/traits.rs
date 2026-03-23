@@ -1,5 +1,4 @@
 use collection::Collection;
-use std::cmp::Ordering;
 
 pub trait QueueLike<T>: Collection<Item = T> {
     fn front(&self) -> Option<&T>;
@@ -52,6 +51,4 @@ pub trait CircularQueueLike<T>: DequeLike<T> {
     fn rearrange(&mut self);
 }
 
-pub trait PriorityQueueLike<T>: QueueLike<T> {
-    fn compare(&self, a: &T, b: &T) -> Ordering;
-}
+pub trait PriorityQueueLike<T>: QueueLike<T> {}

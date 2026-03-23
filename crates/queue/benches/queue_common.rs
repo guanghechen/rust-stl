@@ -1,15 +1,12 @@
-use std::cmp::Ordering;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
-use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use rstl_queue::{CircularQueue, LinkedDeque, PriorityQueue, QueueLike};
 
 const N_ENQUEUE: usize = 1024;
 const N_DEQUEUE: usize = 1024;
 const N_MIX: usize = 10_000;
-
-fn min_compare(a: &usize, b: &usize) -> Ordering {
-    a.cmp(b)
-}
 
 fn bench_enqueue(c: &mut Criterion) {
     let mut group = c.benchmark_group("queue/common_enqueue_1k");
@@ -42,12 +39,25 @@ fn bench_enqueue(c: &mut Criterion) {
 
     group.bench_function("priority_queue", |b| {
         b.iter_batched(
-            || PriorityQueue::<usize, fn(&usize, &usize) -> Ordering>::new(min_compare),
+            PriorityQueue::<usize>::new,
             |mut q| {
                 for i in 0..N_ENQUEUE {
                     q.enqueue(black_box(i));
                 }
                 black_box(q.front());
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("std_binary_heap", |b| {
+        b.iter_batched(
+            BinaryHeap::<Reverse<usize>>::new,
+            |mut q| {
+                for i in 0..N_ENQUEUE {
+                    q.push(Reverse(black_box(i)));
+                }
+                black_box(q.peek());
             },
             BatchSize::SmallInput,
         )
@@ -98,7 +108,7 @@ fn bench_dequeue(c: &mut Criterion) {
     group.bench_function("priority_queue", |b| {
         b.iter_batched(
             || {
-                let mut q = PriorityQueue::<usize, fn(&usize, &usize) -> Ordering>::new(min_compare);
+                let mut q = PriorityQueue::<usize>::new();
                 for i in 0..N_DEQUEUE {
                     q.enqueue(i);
                 }
@@ -107,6 +117,24 @@ fn bench_dequeue(c: &mut Criterion) {
             |mut q| {
                 for _ in 0..N_DEQUEUE {
                     black_box(q.dequeue());
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("std_binary_heap", |b| {
+        b.iter_batched(
+            || {
+                let mut q = BinaryHeap::<Reverse<usize>>::new();
+                for i in 0..N_DEQUEUE {
+                    q.push(Reverse(i));
+                }
+                q
+            },
+            |mut q| {
+                for _ in 0..N_DEQUEUE {
+                    black_box(q.pop());
                 }
             },
             BatchSize::SmallInput,
@@ -147,11 +175,24 @@ fn bench_mix(c: &mut Criterion) {
 
     group.bench_function("priority_queue", |b| {
         b.iter_batched(
-            || PriorityQueue::<usize, fn(&usize, &usize) -> Ordering>::new(min_compare),
+            PriorityQueue::<usize>::new,
             |mut q| {
                 for i in 0..N_MIX {
                     q.enqueue(black_box(i));
                     black_box(q.dequeue());
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("std_binary_heap", |b| {
+        b.iter_batched(
+            BinaryHeap::<Reverse<usize>>::new,
+            |mut q| {
+                for i in 0..N_MIX {
+                    q.push(Reverse(black_box(i)));
+                    black_box(q.pop());
                 }
             },
             BatchSize::SmallInput,

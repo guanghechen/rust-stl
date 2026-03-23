@@ -1,28 +1,25 @@
-use std::cmp::Ordering;
-
 use collection::{Collection, Disposable};
 
 use crate::traits::QueueLike;
 
 pub use crate::traits::PriorityQueueLike;
 
-pub struct PriorityQueue<T, C>
+#[derive(Debug, Clone)]
+pub struct PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
     disposed: bool,
-    compare: C,
     elements: Vec<T>,
 }
 
-impl<T, C> PriorityQueue<T, C>
+impl<T> PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
-    pub fn new(compare: C) -> Self {
+    pub fn new() -> Self {
         Self {
             disposed: false,
-            compare,
             elements: Vec::new(),
         }
     }
@@ -31,7 +28,7 @@ where
         let mut q = index;
         while q > 0 {
             let p = (q - 1) >> 1;
-            if (self.compare)(&self.elements[p], &self.elements[q]) != Ordering::Greater {
+            if self.elements[p] <= self.elements[q] {
                 break;
             }
             self.elements.swap(p, q);
@@ -51,13 +48,11 @@ where
 
             let right = left + 1;
             let mut q = left;
-            if right < n
-                && (self.compare)(&self.elements[right], &self.elements[left]) == Ordering::Less
-            {
+            if right < n && self.elements[right] < self.elements[left] {
                 q = right;
             }
 
-            if (self.compare)(&self.elements[p], &self.elements[q]) != Ordering::Greater {
+            if self.elements[p] <= self.elements[q] {
                 break;
             }
 
@@ -79,9 +74,9 @@ where
     }
 }
 
-impl<T, C> QueueLike<T> for PriorityQueue<T, C>
+impl<T> QueueLike<T> for PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
     fn front(&self) -> Option<&T> {
         self.elements.first()
@@ -141,18 +136,11 @@ where
     }
 }
 
-impl<T, C> PriorityQueueLike<T> for PriorityQueue<T, C>
-where
-    C: Fn(&T, &T) -> Ordering,
-{
-    fn compare(&self, a: &T, b: &T) -> Ordering {
-        (self.compare)(a, b)
-    }
-}
+impl<T> PriorityQueueLike<T> for PriorityQueue<T> where T: Ord {}
 
-impl<T, C> Collection for PriorityQueue<T, C>
+impl<T> Collection for PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
     type Item = T;
     type Iter<'a>
@@ -190,9 +178,9 @@ where
     }
 }
 
-impl<T, C> Disposable for PriorityQueue<T, C>
+impl<T> Disposable for PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
     fn dispose(&mut self) {
         self.disposed = true;
@@ -204,9 +192,9 @@ where
     }
 }
 
-impl<'a, T, C> IntoIterator for &'a PriorityQueue<T, C>
+impl<'a, T> IntoIterator for &'a PriorityQueue<T>
 where
-    C: Fn(&T, &T) -> Ordering,
+    T: Ord,
 {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
@@ -218,7 +206,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use std::cmp::Reverse;
 
     use collection::{Collection, Disposable};
 
@@ -226,17 +214,9 @@ mod tests {
 
     use super::PriorityQueue;
 
-    fn min_compare(a: &i32, b: &i32) -> Ordering {
-        a.cmp(b)
-    }
-
-    fn max_compare(a: &i32, b: &i32) -> Ordering {
-        b.cmp(a)
-    }
-
-    fn drain_all<C>(q: &mut PriorityQueue<i32, C>) -> Vec<i32>
+    fn drain_all<T>(q: &mut PriorityQueue<T>) -> Vec<T>
     where
-        C: Fn(&i32, &i32) -> Ordering,
+        T: Ord,
     {
         let mut out = Vec::new();
         while let Some(x) = q.dequeue() {
@@ -247,7 +227,7 @@ mod tests {
 
     #[test]
     fn queue_like_min_heap_ops_should_work() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
 
         assert_eq!(q.front(), None);
         assert_eq!(q.dequeue(), None);
@@ -260,7 +240,7 @@ mod tests {
 
     #[test]
     fn enqueue_should_cover_up_break_path() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
 
         q.enqueue(1);
         q.enqueue(2);
@@ -272,7 +252,7 @@ mod tests {
 
     #[test]
     fn replace_front_should_handle_empty_and_single_item() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
 
         assert_eq!(q.replace_front(10), None);
         assert_eq!(q.front(), Some(&10));
@@ -284,7 +264,7 @@ mod tests {
 
     #[test]
     fn enqueues_should_work_for_small_and_large_batch() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
 
         q.enqueues([5, 4]);
         q.enqueues(0..100);
@@ -299,7 +279,7 @@ mod tests {
 
     #[test]
     fn enqueues_empty_should_be_noop() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
 
         q.enqueues(std::iter::empty());
         assert!(q.is_empty());
@@ -311,25 +291,34 @@ mod tests {
     }
 
     #[test]
-    fn custom_comparator_should_support_max_heap() {
-        let mut q = PriorityQueue::new(max_compare);
+    fn reverse_ord_should_support_max_heap() {
+        let mut q = PriorityQueue::new();
 
-        q.enqueues([1, 5, 2, 4, 3]);
+        q.enqueues([
+            Reverse(1_i32),
+            Reverse(5_i32),
+            Reverse(2_i32),
+            Reverse(4_i32),
+            Reverse(3_i32),
+        ]);
 
-        assert_eq!(q.front(), Some(&5));
-        assert_eq!(drain_all(&mut q), vec![5, 4, 3, 2, 1]);
+        assert_eq!(q.front(), Some(&Reverse(5)));
+        assert_eq!(
+            drain_all(&mut q),
+            vec![Reverse(5), Reverse(4), Reverse(3), Reverse(2), Reverse(1)]
+        );
     }
 
     #[test]
     fn retain_should_rebuild_heap() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
         q.enqueues(1..=8);
 
         let removed = q.retain(|x| *x % 2 == 0);
         assert_eq!(removed, 4);
         assert_eq!(drain_all(&mut q), vec![2, 4, 6, 8]);
 
-        let mut single = PriorityQueue::new(min_compare);
+        let mut single = PriorityQueue::new();
         single.enqueues([1, 2]);
         let removed_single = single.retain(|x| *x == 2);
         assert_eq!(removed_single, 1);
@@ -338,7 +327,7 @@ mod tests {
 
     #[test]
     fn retain_on_empty_should_return_zero() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::<i32>::new();
 
         let removed = q.retain(|_| true);
         assert_eq!(removed, 0);
@@ -347,7 +336,7 @@ mod tests {
 
     #[test]
     fn iter_should_be_unsorted_but_complete() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
         q.enqueues([7, 1, 9, 3, 5]);
 
         let mut from_iter: Vec<i32> = q.iter().copied().collect();
@@ -361,7 +350,7 @@ mod tests {
 
     #[test]
     fn collection_and_dispose_contract_should_work() {
-        let mut q = PriorityQueue::new(min_compare);
+        let mut q = PriorityQueue::new();
         q.enqueues([3, 1, 2]);
 
         assert_eq!(Collection::size(&q), 3);
@@ -384,10 +373,7 @@ mod tests {
     fn priority_queue_like_should_be_implemented() {
         fn assert_priority_queue_like<Q: PriorityQueueLike<i32>>(_q: &Q) {}
 
-        let q = PriorityQueue::new(min_compare);
+        let q = PriorityQueue::new();
         assert_priority_queue_like(&q);
-        assert_eq!(q.compare(&1, &2), Ordering::Less);
-        assert_eq!(q.compare(&2, &1), Ordering::Greater);
-        assert_eq!(q.compare(&3, &3), Ordering::Equal);
     }
 }
