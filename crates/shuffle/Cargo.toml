@@ -1,0 +1,19 @@
+[package]
+name = "rstl-shuffle"
+version = "0.1.0"
+edition = "2024"
+description = "Shuffle algorithms for rstl crates"
+license = "MIT"
+repository = "https://github.com/guanghechen/rust-stl"
+homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/shuffle#readme"
+documentation = "https://docs.rs/rstl-shuffle"
+readme = "README.md"
+
+[dependencies]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "shuffle_common"
+harness = false
