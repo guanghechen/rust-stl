@@ -1,3 +1,5 @@
+use std::{mem::ManuallyDrop, ptr};
+
 use collection::{Collection, Disposable};
 
 use crate::traits::QueueLike;
@@ -13,10 +15,30 @@ where
     elements: Vec<T>,
 }
 
+struct RestoreOnDrop<T> {
+    ptr: *mut T,
+    pos: usize,
+    item: ManuallyDrop<T>,
+}
+
+impl<T> Drop for RestoreOnDrop<T> {
+    fn drop(&mut self) {
+        // SAFETY: `self.pos` is always in-bounds and marks the current hole.
+        // Writing `item` back restores full initialization if unwinding occurs.
+        unsafe {
+            let dst = self.ptr.add(self.pos);
+            ptr::write(dst, ManuallyDrop::take(&mut self.item));
+        }
+    }
+}
+
 impl<T> PriorityQueue<T>
 where
     T: Ord,
 {
+    const UP_HOLE_THRESHOLD: usize = 64;
+    const DOWN_HOLE_THRESHOLD: usize = 512;
+
     pub fn new() -> Self {
         Self {
             disposed: false,
@@ -24,7 +46,22 @@ where
         }
     }
 
+    #[inline(always)]
     fn up(&mut self, index: usize) {
+        let len = self.elements.len();
+        if index == 0 || index >= len {
+            return;
+        }
+
+        if len < Self::UP_HOLE_THRESHOLD {
+            self.up_swap(index);
+        } else {
+            self.up_hole(index);
+        }
+    }
+
+    #[inline(always)]
+    fn up_swap(&mut self, index: usize) {
         let mut q = index;
         while q > 0 {
             let p = (q - 1) >> 1;
@@ -36,7 +73,50 @@ where
         }
     }
 
+    #[inline(always)]
+    fn up_hole(&mut self, index: usize) {
+        let len = self.elements.len();
+        debug_assert!(index < len);
+
+        unsafe {
+            let ptr = self.elements.as_mut_ptr();
+            let mut pos = index;
+
+            let item = ManuallyDrop::new(ptr::read(ptr.add(index)));
+            let mut restore = RestoreOnDrop { ptr, pos, item };
+            let item_ptr = (&restore.item as *const ManuallyDrop<T>).cast::<T>();
+
+            while pos > 0 {
+                let parent = (pos - 1) >> 1;
+                let parent_ref: &T = &*ptr.add(parent);
+                let item_ref: &T = &*item_ptr;
+                if parent_ref <= item_ref {
+                    break;
+                }
+
+                ptr::copy_nonoverlapping(ptr.add(parent), ptr.add(pos), 1);
+                pos = parent;
+                restore.pos = pos;
+            }
+        }
+    }
+
+    #[inline(always)]
     fn down(&mut self, index: usize) {
+        let n = self.elements.len();
+        if index >= n {
+            return;
+        }
+
+        if n < Self::DOWN_HOLE_THRESHOLD {
+            self.down_swap(index);
+        } else {
+            self.down_hole(index);
+        }
+    }
+
+    #[inline(always)]
+    fn down_swap(&mut self, index: usize) {
         let mut p = index;
         let n = self.elements.len();
 
@@ -61,6 +141,47 @@ where
         }
     }
 
+    #[inline(always)]
+    fn down_hole(&mut self, index: usize) {
+        let n = self.elements.len();
+
+        unsafe {
+            let ptr = self.elements.as_mut_ptr();
+            let mut pos = index;
+
+            let item = ManuallyDrop::new(ptr::read(ptr.add(index)));
+            let mut restore = RestoreOnDrop { ptr, pos, item };
+            let item_ptr = (&restore.item as *const ManuallyDrop<T>).cast::<T>();
+
+            loop {
+                let left = (pos << 1) + 1;
+                if left >= n {
+                    break;
+                }
+
+                let right = left + 1;
+                let mut child = left;
+                if right < n {
+                    let right_ref: &T = &*ptr.add(right);
+                    let left_ref: &T = &*ptr.add(left);
+                    if right_ref < left_ref {
+                        child = right;
+                    }
+                }
+
+                let item_ref: &T = &*item_ptr;
+                let child_ref: &T = &*ptr.add(child);
+                if item_ref <= child_ref {
+                    break;
+                }
+
+                ptr::copy_nonoverlapping(ptr.add(child), ptr.add(pos), 1);
+                pos = child;
+                restore.pos = pos;
+            }
+        }
+    }
+
     fn fast_build(&mut self) {
         let n = self.elements.len();
         if n <= 1 {
@@ -71,6 +192,15 @@ where
         for p in (0..=last_parent).rev() {
             self.down(p);
         }
+    }
+}
+
+impl<T> Default for PriorityQueue<T>
+where
+    T: Ord,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -206,13 +336,38 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Reverse;
+    use std::{cmp::Reverse, collections::BinaryHeap};
 
     use collection::{Collection, Disposable};
 
     use crate::traits::{PriorityQueueLike, QueueLike};
 
     use super::PriorityQueue;
+
+    #[derive(Clone)]
+    struct XorShift64 {
+        state: u64,
+    }
+
+    impl XorShift64 {
+        fn new(seed: u64) -> Self {
+            Self { state: seed }
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.state = x;
+            x
+        }
+
+        fn next_i32_in(&mut self, bound: i32) -> i32 {
+            debug_assert!(bound > 0);
+            (self.next_u64() % bound as u64) as i32
+        }
+    }
 
     fn drain_all<T>(q: &mut PriorityQueue<T>) -> Vec<T>
     where
@@ -375,5 +530,248 @@ mod tests {
 
         let q = PriorityQueue::new();
         assert_priority_queue_like(&q);
+    }
+
+    fn model_front(model: &[i32]) -> Option<i32> {
+        model.iter().min().copied()
+    }
+
+    fn model_dequeue(model: &mut Vec<i32>) -> Option<i32> {
+        let (idx, _) = model.iter().enumerate().min_by_key(|(_, x)| *x)?;
+        Some(model.swap_remove(idx))
+    }
+
+    fn model_replace_front(model: &mut Vec<i32>, new_back: i32) -> Option<i32> {
+        match model_dequeue(model) {
+            Some(removed) => {
+                model.push(new_back);
+                Some(removed)
+            }
+            None => {
+                model.push(new_back);
+                None
+            }
+        }
+    }
+
+    fn sorted_dequeue_from_binary_heap(heap: &mut BinaryHeap<Reverse<i32>>) -> Vec<i32> {
+        let mut out = Vec::new();
+        while let Some(Reverse(x)) = heap.pop() {
+            out.push(x);
+        }
+        out
+    }
+
+    #[test]
+    fn randomized_ops_should_match_model_and_binary_heap() {
+        let seeds = [1_u64, 7, 97, 0x1234_5678, 0xDEAD_BEEF, 0xCAFE_BABE];
+
+        for seed in seeds {
+            let mut rng = XorShift64::new(seed);
+            let mut q = PriorityQueue::new();
+            let mut model: Vec<i32> = Vec::new();
+            let mut bh = BinaryHeap::<Reverse<i32>>::new();
+
+            for step in 0..5000 {
+                match rng.next_u64() % 6 {
+                    0 => {
+                        let x = rng.next_i32_in(10_000) - 5000;
+                        q.enqueue(x);
+                        model.push(x);
+                        bh.push(Reverse(x));
+                    }
+                    1 => {
+                        let got = q.dequeue();
+                        let expect = model_dequeue(&mut model);
+                        let bh_expect = bh.pop().map(|Reverse(x)| x);
+                        assert_eq!(got, expect);
+                        assert_eq!(got, bh_expect);
+                    }
+                    2 => {
+                        let x = rng.next_i32_in(10_000) - 5000;
+                        let got = q.replace_front(x);
+                        let expect = model_replace_front(&mut model, x);
+                        let bh_expect = match bh.pop() {
+                            Some(Reverse(v)) => {
+                                bh.push(Reverse(x));
+                                Some(v)
+                            }
+                            None => {
+                                bh.push(Reverse(x));
+                                None
+                            }
+                        };
+                        assert_eq!(got, expect);
+                        assert_eq!(got, bh_expect);
+                    }
+                    3 => {
+                        let batch_size = (rng.next_u64() % 8) as usize;
+                        let mut batch = Vec::with_capacity(batch_size);
+                        for _ in 0..batch_size {
+                            let x = rng.next_i32_in(10_000) - 5000;
+                            batch.push(x);
+                        }
+                        q.enqueues(batch.iter().copied());
+                        for &x in &batch {
+                            model.push(x);
+                            bh.push(Reverse(x));
+                        }
+                    }
+                    4 => {
+                        let div = (rng.next_u64() % 5 + 2) as i32;
+                        let rem = (rng.next_u64() % div as u64) as i32;
+                        let removed = q.retain(|x| x.rem_euclid(div) != rem);
+
+                        let before = model.len();
+                        model.retain(|x| x.rem_euclid(div) != rem);
+                        let expect_removed = before - model.len();
+
+                        let mut kept = Vec::new();
+                        while let Some(Reverse(x)) = bh.pop() {
+                            if x.rem_euclid(div) != rem {
+                                kept.push(x);
+                            }
+                        }
+                        for x in kept {
+                            bh.push(Reverse(x));
+                        }
+
+                        assert_eq!(removed, expect_removed);
+                    }
+                    _ => {
+                        q.clear();
+                        model.clear();
+                        bh.clear();
+                    }
+                }
+
+                assert_eq!(q.size(), model.len());
+                assert_eq!(q.front().copied(), model_front(&model));
+                assert_eq!(q.front().copied(), bh.peek().map(|Reverse(x)| *x));
+
+                if step % 257 == 0 {
+                    let mut q_clone = q.clone();
+                    let mut expected = model.clone();
+                    expected.sort_unstable();
+                    let actual = drain_all(&mut q_clone);
+                    assert_eq!(actual, expected);
+
+                    let mut bh_clone = bh.clone();
+                    assert_eq!(actual, sorted_dequeue_from_binary_heap(&mut bh_clone));
+                }
+            }
+
+            let mut expected = model;
+            expected.sort_unstable();
+            assert_eq!(drain_all(&mut q), expected);
+            assert_eq!(expected, sorted_dequeue_from_binary_heap(&mut bh));
+        }
+    }
+
+    fn enqueue_with_swap(q: &mut PriorityQueue<i32>, x: i32) {
+        q.elements.push(x);
+        let index = q.elements.len() - 1;
+        q.up_swap(index);
+    }
+
+    fn enqueue_with_hole(q: &mut PriorityQueue<i32>, x: i32) {
+        q.elements.push(x);
+        let index = q.elements.len() - 1;
+        q.up_hole(index);
+    }
+
+    fn dequeue_with_swap(q: &mut PriorityQueue<i32>) -> Option<i32> {
+        if q.elements.is_empty() {
+            return None;
+        }
+        if q.elements.len() == 1 {
+            return q.elements.pop();
+        }
+
+        let removed = q.elements.swap_remove(0);
+        q.down_swap(0);
+        Some(removed)
+    }
+
+    fn dequeue_with_hole(q: &mut PriorityQueue<i32>) -> Option<i32> {
+        if q.elements.is_empty() {
+            return None;
+        }
+        if q.elements.len() == 1 {
+            return q.elements.pop();
+        }
+
+        let removed = q.elements.swap_remove(0);
+        q.down_hole(0);
+        Some(removed)
+    }
+
+    fn replace_front_with_swap(q: &mut PriorityQueue<i32>, x: i32) -> Option<i32> {
+        if q.elements.is_empty() {
+            q.elements.push(x);
+            return None;
+        }
+
+        let removed = std::mem::replace(&mut q.elements[0], x);
+        q.down_swap(0);
+        Some(removed)
+    }
+
+    fn replace_front_with_hole(q: &mut PriorityQueue<i32>, x: i32) -> Option<i32> {
+        if q.elements.is_empty() {
+            q.elements.push(x);
+            return None;
+        }
+
+        let removed = std::mem::replace(&mut q.elements[0], x);
+        q.down_hole(0);
+        Some(removed)
+    }
+
+    #[test]
+    fn forced_swap_and_hole_paths_should_match() {
+        let seeds = [3_u64, 31, 131, 997, 65537, 0xBADC_0FFE];
+
+        for seed in seeds {
+            let mut rng = XorShift64::new(seed);
+            let mut q_swap = PriorityQueue::<i32>::new();
+            let mut q_hole = PriorityQueue::<i32>::new();
+
+            for step in 0..7000 {
+                match rng.next_u64() % 4 {
+                    0 => {
+                        let x = rng.next_i32_in(20_000) - 10_000;
+                        enqueue_with_swap(&mut q_swap, x);
+                        enqueue_with_hole(&mut q_hole, x);
+                    }
+                    1 => {
+                        let got_swap = dequeue_with_swap(&mut q_swap);
+                        let got_hole = dequeue_with_hole(&mut q_hole);
+                        assert_eq!(got_swap, got_hole);
+                    }
+                    2 => {
+                        let x = rng.next_i32_in(20_000) - 10_000;
+                        let got_swap = replace_front_with_swap(&mut q_swap, x);
+                        let got_hole = replace_front_with_hole(&mut q_hole, x);
+                        assert_eq!(got_swap, got_hole);
+                    }
+                    _ => {
+                        q_swap.clear();
+                        q_hole.clear();
+                    }
+                }
+
+                assert_eq!(q_swap.size(), q_hole.size());
+                assert_eq!(q_swap.front().copied(), q_hole.front().copied());
+
+                if step % 311 == 0 {
+                    let mut a = q_swap.clone();
+                    let mut b = q_hole.clone();
+                    assert_eq!(drain_all(&mut a), drain_all(&mut b));
+                }
+            }
+
+            assert_eq!(drain_all(&mut q_swap), drain_all(&mut q_hole));
+        }
     }
 }
