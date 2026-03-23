@@ -36,9 +36,6 @@ impl<T> PriorityQueue<T>
 where
     T: Ord,
 {
-    const UP_HOLE_THRESHOLD: usize = 64;
-    const DOWN_HOLE_THRESHOLD: usize = 512;
-
     pub fn new() -> Self {
         Self {
             disposed: false,
@@ -52,31 +49,6 @@ where
         if index == 0 || index >= len {
             return;
         }
-
-        if len < Self::UP_HOLE_THRESHOLD {
-            self.up_swap(index);
-        } else {
-            self.up_hole(index);
-        }
-    }
-
-    #[inline(always)]
-    fn up_swap(&mut self, index: usize) {
-        let mut q = index;
-        while q > 0 {
-            let p = (q - 1) >> 1;
-            if self.elements[p] <= self.elements[q] {
-                break;
-            }
-            self.elements.swap(p, q);
-            q = p;
-        }
-    }
-
-    #[inline(always)]
-    fn up_hole(&mut self, index: usize) {
-        let len = self.elements.len();
-        debug_assert!(index < len);
 
         unsafe {
             let ptr = self.elements.as_mut_ptr();
@@ -107,43 +79,6 @@ where
         if index >= n {
             return;
         }
-
-        if n < Self::DOWN_HOLE_THRESHOLD {
-            self.down_swap(index);
-        } else {
-            self.down_hole(index);
-        }
-    }
-
-    #[inline(always)]
-    fn down_swap(&mut self, index: usize) {
-        let mut p = index;
-        let n = self.elements.len();
-
-        while p < n {
-            let left = (p << 1) + 1;
-            if left >= n {
-                break;
-            }
-
-            let right = left + 1;
-            let mut q = left;
-            if right < n && self.elements[right] < self.elements[left] {
-                q = right;
-            }
-
-            if self.elements[p] <= self.elements[q] {
-                break;
-            }
-
-            self.elements.swap(p, q);
-            p = q;
-        }
-    }
-
-    #[inline(always)]
-    fn down_hole(&mut self, index: usize) {
-        let n = self.elements.len();
 
         unsafe {
             let ptr = self.elements.as_mut_ptr();
@@ -179,6 +114,80 @@ where
                 pos = child;
                 restore.pos = pos;
             }
+        }
+    }
+
+    #[inline(always)]
+    fn down_to_bottom_then_up(&mut self, start: usize) {
+        let n = self.elements.len();
+        if start >= n {
+            return;
+        }
+
+        unsafe {
+            let ptr = self.elements.as_mut_ptr();
+            let item = ManuallyDrop::new(ptr::read(ptr.add(start)));
+            let mut restore = RestoreOnDrop {
+                ptr,
+                pos: start,
+                item,
+            };
+            let item_ptr = (&restore.item as *const ManuallyDrop<T>).cast::<T>();
+
+            Self::sift_down_to_bottom(ptr, n, &mut restore);
+            Self::sift_up_from(start, ptr, &mut restore, item_ptr);
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn sift_down_to_bottom(ptr: *mut T, n: usize, restore: &mut RestoreOnDrop<T>) {
+        let mut pos = restore.pos;
+        let mut child = (pos << 1) + 1;
+
+        while child + 1 < n {
+            let right = child + 1;
+            let right_ref: &T = unsafe { &*ptr.add(right) };
+            let child_ref: &T = unsafe { &*ptr.add(child) };
+            if right_ref < child_ref {
+                child = right;
+            }
+
+            // SAFETY: `child` and `pos` are always valid indices in the heap range.
+            unsafe { ptr::copy_nonoverlapping(ptr.add(child), ptr.add(pos), 1) };
+            pos = child;
+            restore.pos = pos;
+            child = (pos << 1) + 1;
+        }
+
+        if child < n {
+            // SAFETY: when `child < n`, both source and destination are valid.
+            unsafe { ptr::copy_nonoverlapping(ptr.add(child), ptr.add(pos), 1) };
+            pos = child;
+            restore.pos = pos;
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn sift_up_from(
+        start: usize,
+        ptr: *mut T,
+        restore: &mut RestoreOnDrop<T>,
+        item_ptr: *const T,
+    ) {
+        let mut pos = restore.pos;
+
+        while pos > start {
+            let parent = (pos - 1) >> 1;
+            let parent_ref: &T = unsafe { &*ptr.add(parent) };
+            let item_ref: &T = unsafe { &*item_ptr };
+            if parent_ref <= item_ref {
+                break;
+            }
+
+            // SAFETY: `parent` and `pos` are valid and non-overlapping.
+            unsafe { ptr::copy_nonoverlapping(ptr.add(parent), ptr.add(pos), 1) };
+            pos = parent;
+            restore.pos = pos;
         }
     }
 
@@ -219,16 +228,13 @@ where
     }
 
     fn dequeue(&mut self) -> Option<T> {
-        if self.elements.is_empty() {
-            return None;
-        }
-        if self.elements.len() == 1 {
-            return self.elements.pop();
-        }
-
-        let removed = self.elements.swap_remove(0);
-        self.down(0);
-        Some(removed)
+        self.elements.pop().map(|mut item| {
+            if !self.elements.is_empty() {
+                std::mem::swap(&mut item, &mut self.elements[0]);
+                self.down_to_bottom_then_up(0);
+            }
+            item
+        })
     }
 
     fn enqueues<I>(&mut self, elements: I)
@@ -668,110 +674,4 @@ mod tests {
         }
     }
 
-    fn enqueue_with_swap(q: &mut PriorityQueue<i32>, x: i32) {
-        q.elements.push(x);
-        let index = q.elements.len() - 1;
-        q.up_swap(index);
-    }
-
-    fn enqueue_with_hole(q: &mut PriorityQueue<i32>, x: i32) {
-        q.elements.push(x);
-        let index = q.elements.len() - 1;
-        q.up_hole(index);
-    }
-
-    fn dequeue_with_swap(q: &mut PriorityQueue<i32>) -> Option<i32> {
-        if q.elements.is_empty() {
-            return None;
-        }
-        if q.elements.len() == 1 {
-            return q.elements.pop();
-        }
-
-        let removed = q.elements.swap_remove(0);
-        q.down_swap(0);
-        Some(removed)
-    }
-
-    fn dequeue_with_hole(q: &mut PriorityQueue<i32>) -> Option<i32> {
-        if q.elements.is_empty() {
-            return None;
-        }
-        if q.elements.len() == 1 {
-            return q.elements.pop();
-        }
-
-        let removed = q.elements.swap_remove(0);
-        q.down_hole(0);
-        Some(removed)
-    }
-
-    fn replace_front_with_swap(q: &mut PriorityQueue<i32>, x: i32) -> Option<i32> {
-        if q.elements.is_empty() {
-            q.elements.push(x);
-            return None;
-        }
-
-        let removed = std::mem::replace(&mut q.elements[0], x);
-        q.down_swap(0);
-        Some(removed)
-    }
-
-    fn replace_front_with_hole(q: &mut PriorityQueue<i32>, x: i32) -> Option<i32> {
-        if q.elements.is_empty() {
-            q.elements.push(x);
-            return None;
-        }
-
-        let removed = std::mem::replace(&mut q.elements[0], x);
-        q.down_hole(0);
-        Some(removed)
-    }
-
-    #[test]
-    fn forced_swap_and_hole_paths_should_match() {
-        let seeds = [3_u64, 31, 131, 997, 65537, 0xBADC_0FFE];
-
-        for seed in seeds {
-            let mut rng = XorShift64::new(seed);
-            let mut q_swap = PriorityQueue::<i32>::new();
-            let mut q_hole = PriorityQueue::<i32>::new();
-
-            for step in 0..7000 {
-                match rng.next_u64() % 4 {
-                    0 => {
-                        let x = rng.next_i32_in(20_000) - 10_000;
-                        enqueue_with_swap(&mut q_swap, x);
-                        enqueue_with_hole(&mut q_hole, x);
-                    }
-                    1 => {
-                        let got_swap = dequeue_with_swap(&mut q_swap);
-                        let got_hole = dequeue_with_hole(&mut q_hole);
-                        assert_eq!(got_swap, got_hole);
-                    }
-                    2 => {
-                        let x = rng.next_i32_in(20_000) - 10_000;
-                        let got_swap = replace_front_with_swap(&mut q_swap, x);
-                        let got_hole = replace_front_with_hole(&mut q_hole, x);
-                        assert_eq!(got_swap, got_hole);
-                    }
-                    _ => {
-                        q_swap.clear();
-                        q_hole.clear();
-                    }
-                }
-
-                assert_eq!(q_swap.size(), q_hole.size());
-                assert_eq!(q_swap.front().copied(), q_hole.front().copied());
-
-                if step % 311 == 0 {
-                    let mut a = q_swap.clone();
-                    let mut b = q_hole.clone();
-                    assert_eq!(drain_all(&mut a), drain_all(&mut b));
-                }
-            }
-
-            assert_eq!(drain_all(&mut q_swap), drain_all(&mut q_hole));
-        }
-    }
 }

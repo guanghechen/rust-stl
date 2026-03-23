@@ -1,5 +1,8 @@
+use collection::Collection;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::VecDeque;
+
+use queue::{PriorityQueue, QueueLike};
 
 use crate::error::McmfError;
 use crate::traits::McmfLike;
@@ -53,7 +56,7 @@ pub struct Mcmf {
     edges: Vec<McmfEdge>,
     graph: Vec<Vec<usize>>,
     queue: VecDeque<usize>,
-    heap: BinaryHeap<(Reverse<i64>, usize)>,
+    heap: PriorityQueue<(i64, Reverse<usize>)>,
     n: usize,
     source: usize,
     sink: usize,
@@ -89,7 +92,7 @@ impl Mcmf {
             edges: Vec::new(),
             graph: Vec::new(),
             queue: VecDeque::new(),
-            heap: BinaryHeap::new(),
+            heap: PriorityQueue::new(),
             n: 0,
             source: 0,
             sink: 0,
@@ -139,7 +142,7 @@ impl Mcmf {
         self.graph.clear();
         self.graph.resize_with(n, Vec::new);
         self.queue = VecDeque::with_capacity(n + 1);
-        self.heap = BinaryHeap::new();
+        self.heap = PriorityQueue::new();
 
         Ok(())
     }
@@ -305,9 +308,9 @@ impl Mcmf {
         self.dist.fill(self.inf);
         self.heap.clear();
         self.dist[self.source] = 0;
-        self.heap.push((Reverse(0), self.source));
+        self.heap.enqueue((0, Reverse(self.source)));
 
-        while let Some((Reverse(du), u)) = self.heap.pop() {
+        while let Some((du, Reverse(u))) = self.heap.dequeue() {
             if du != self.dist[u] {
                 continue;
             }
@@ -335,7 +338,7 @@ impl Mcmf {
                 if self.dist[e.to] > cand {
                     self.dist[e.to] = cand;
                     self.path[e.to] = edge_idx;
-                    self.heap.push((Reverse(cand), e.to));
+                    self.heap.enqueue((cand, Reverse(e.to)));
                 }
             }
         }
@@ -752,11 +755,13 @@ mod tests {
             }),
             Err(McmfError::InvalidInf { inf: -7 })
         ));
-        assert!(Mcmf::with_options(McmfOptions {
-            inf: 123,
-            ..McmfOptions::default()
-        })
-        .is_ok());
+        assert!(
+            Mcmf::with_options(McmfOptions {
+                inf: 123,
+                ..McmfOptions::default()
+            })
+            .is_ok()
+        );
     }
 
     #[test]

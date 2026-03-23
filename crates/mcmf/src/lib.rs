@@ -5,5 +5,5 @@ mod traits;
 pub mod prelude;
 
 pub use error::McmfError;
-pub use mcmf::{Mcmf, McmfEdge, McmfOptions, McmfResult, McmfShortestPathStrategy, DEFAULT_INF};
+pub use mcmf::{DEFAULT_INF, Mcmf, McmfEdge, McmfOptions, McmfResult, McmfShortestPathStrategy};
 pub use traits::McmfLike;

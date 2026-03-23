@@ -9,6 +9,10 @@ homepage = "https://github.com/guanghechen/rust-stl/tree/main/crates/mcmf#readme
 documentation = "https://docs.rs/rstl-mcmf"
 readme = "README.md"
 
+[dependencies]
+collection = { package = "rstl-collection", version = "0.1.0", path = "../collection" }
+queue = { package = "rstl-queue", version = "0.1.0", path = "../queue" }
+
 [dev-dependencies]
 criterion = "0.5"
 
