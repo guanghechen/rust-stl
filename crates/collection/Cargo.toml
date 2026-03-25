@@ -10,3 +10,10 @@ documentation = "https://docs.rs/rstl-collection"
 readme = "README.md"
 
 [dependencies]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "observable_common"
+harness = false
