@@ -92,9 +92,12 @@ where
 
     /// Reserve capacity for additional nodes.
     pub fn reserve_nodes(&mut self, additional_nodes: usize) -> Result<(), TrieError> {
-        let target_nodes = self.nodes.checked_add(additional_nodes).ok_or(TrieError::NodeOverflow {
-            max_nodes: Self::MAX_NODE_COUNT,
-        })?;
+        let target_nodes =
+            self.nodes
+                .checked_add(additional_nodes)
+                .ok_or(TrieError::NodeOverflow {
+                    max_nodes: Self::MAX_NODE_COUNT,
+                })?;
 
         if target_nodes > Self::MAX_NODE_COUNT {
             return Err(TrieError::NodeOverflow {
